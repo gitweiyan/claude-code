@@ -182,7 +182,7 @@ export function getBestCommandMatch(
       continue
     }
     const name = getCommandName(suggestion.metadata)
-    if (name.toLowerCase().startsWith(query)) {
+    if (name && name.toLowerCase().startsWith(query)) {
       const suffix = name.slice(partialCommand.length)
       // Only return if there's something to complete
       if (suffix) {

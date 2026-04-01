@@ -55,6 +55,7 @@ let cachedDeferredToolNames: string | null = null
 function getDeferredToolsCacheKey(deferredTools: Tools): string {
   return deferredTools
     .map(t => t.name)
+    .filter(Boolean)
     .sort()
     .join(',')
 }
@@ -134,6 +135,9 @@ function parseToolName(name: string): {
   full: string
   isMcp: boolean
 } {
+  if (!name) {
+    return { parts: [], full: '', isMcp: false }
+  }
   // Check if it's an MCP tool
   if (name.startsWith('mcp__')) {
     const withoutPrefix = name.replace(/^mcp__/, '').toLowerCase()
@@ -197,8 +201,8 @@ async function searchToolsWithKeywords(
   // to the full tool set — selecting an already-loaded tool is a harmless
   // no-op that lets the model proceed without retry churn.
   const exactMatch =
-    deferredTools.find(t => t.name.toLowerCase() === queryLower) ??
-    tools.find(t => t.name.toLowerCase() === queryLower)
+    deferredTools.find(t => t.name?.toLowerCase() === queryLower) ??
+    tools.find(t => t.name?.toLowerCase() === queryLower)
   if (exactMatch) {
     return [exactMatch.name]
   }
@@ -207,9 +211,10 @@ async function searchToolsWithKeywords(
   // Handles models searching by server name with mcp__ prefix.
   if (queryLower.startsWith('mcp__') && queryLower.length > 5) {
     const prefixMatches = deferredTools
-      .filter(t => t.name.toLowerCase().startsWith(queryLower))
+      .filter(t => t.name?.toLowerCase().startsWith(queryLower))
       .slice(0, maxResults)
       .map(t => t.name)
+      .filter(Boolean) as string[]
     if (prefixMatches.length > 0) {
       return prefixMatches
     }
@@ -237,6 +242,7 @@ async function searchToolsWithKeywords(
   if (requiredTerms.length > 0) {
     const matches = await Promise.all(
       deferredTools.map(async tool => {
+        if (!tool.name) return null
         const parsed = parseToolName(tool.name)
         const description = await getToolDescriptionMemoized(tool.name, tools)
         const descNormalized = description.toLowerCase()
@@ -258,6 +264,7 @@ async function searchToolsWithKeywords(
 
   const scored = await Promise.all(
     candidateTools.map(async tool => {
+      if (!tool.name) return { name: '', score: 0 }
       const parsed = parseToolName(tool.name)
       const description = await getToolDescriptionMemoized(tool.name, tools)
       const descNormalized = description.toLowerCase()
@@ -295,7 +302,7 @@ async function searchToolsWithKeywords(
   )
 
   return scored
-    .filter(item => item.score > 0)
+    .filter(item => item.score > 0 && item.name)
     .sort((a, b) => b.score - a.score)
     .slice(0, maxResults)
     .map(item => item.name)
