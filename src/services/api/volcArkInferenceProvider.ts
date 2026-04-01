@@ -119,9 +119,7 @@ function anthropicUserContentToArk(content: unknown): ArkUserContent {
       p.text.length > 0
     ) {
       last.text = `${last.text}\n${p.text}`
-    } else if (p.type === 'input_text' && p.text.length === 0) {
-      continue
-    } else {
+    } else if (!(p.type === 'input_text' && p.text.length === 0)) {
       merged.push(p)
     }
   }
