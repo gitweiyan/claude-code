@@ -6,6 +6,9 @@
  * - CLAUDE_CODE_USE_VOLC_ARK=1 — enable this adapter
  * - ARK_API_URL — default https://ark.cn-beijing.volces.com/api/v3/responses
  * - ARK_API_KEY — optional if x-api-key is already set on the Anthropic request (e.g. ANTHROPIC_API_KEY)
+ *
+ * Multimodal: user messages with Anthropic `image` blocks (url or base64 data URL)
+ * map to Ark `input_image` + `input_text`. `source.type === "file"` is not supported.
  */
 
 import { randomUUID } from 'crypto'
@@ -27,7 +30,16 @@ function getBearerFromRequest(headers: Headers): string {
   )
 }
 
-/** Turn Anthropic message content into a plain string for Ark `input` items. */
+/** Ark Responses API user content: plain string or multimodal parts. */
+type ArkInputPart =
+  | { type: 'input_text'; text: string }
+  | { type: 'input_image'; image_url: string }
+
+type ArkUserContent = string | ArkInputPart[]
+
+type ArkInputMessage = { role: string; content: ArkUserContent }
+
+/** Assistant / system: string only (no multimodal in our adapter). */
 function flattenAnthropicContent(content: unknown): string {
   if (content === null || content === undefined) return ''
   if (typeof content === 'string') return content
@@ -41,13 +53,85 @@ function flattenAnthropicContent(content: unknown): string {
     else if (t === 'tool_use' && typeof b.name === 'string')
       parts.push(`[tool_use:${b.name}]`)
     else if (t === 'tool_result') parts.push('[tool_result]')
-    else if (t === 'image' || t === 'document') parts.push(`[${String(t)}]`)
+    else if (t === 'image') parts.push('[image]')
+    else if (t === 'document') parts.push('[document]')
     else parts.push(`[${String(t)}]`)
   }
   return parts.join('\n')
 }
 
-type ArkInputMessage = { role: string; content: string }
+function imageUrlFromAnthropicImageBlock(
+  block: Record<string, unknown>,
+): string | null {
+  const src = block.source
+  if (!src || typeof src !== 'object') return null
+  const s = src as Record<string, unknown>
+  if (s.type === 'url' && typeof s.url === 'string' && s.url.length > 0) {
+    return s.url
+  }
+  if (
+    s.type === 'base64' &&
+    typeof s.data === 'string' &&
+    typeof s.media_type === 'string'
+  ) {
+    return `data:${s.media_type};base64,${s.data}`
+  }
+  return null
+}
+
+/**
+ * User message → Ark `input` item: string if text-only, else
+ * `[{ type: input_image, image_url }, { type: input_text, text }, …]` per official shape.
+ */
+function anthropicUserContentToArk(content: unknown): ArkUserContent {
+  if (content === null || content === undefined) return ''
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return String(content)
+
+  const parts: ArkInputPart[] = []
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as Record<string, unknown>
+    if (b.type === 'text' && typeof b.text === 'string' && b.text.length > 0) {
+      parts.push({ type: 'input_text', text: b.text })
+    } else if (b.type === 'image') {
+      const url = imageUrlFromAnthropicImageBlock(b)
+      if (url) parts.push({ type: 'input_image', image_url: url })
+      else
+        parts.push({ type: 'input_text', text: '[image: unsupported source]' })
+    } else if (b.type === 'document') {
+      parts.push({ type: 'input_text', text: '[document]' })
+    } else if (b.type === 'tool_use' && typeof b.name === 'string') {
+      parts.push({ type: 'input_text', text: `[tool_use:${b.name}]` })
+    } else if (b.type === 'tool_result') {
+      parts.push({ type: 'input_text', text: '[tool_result]' })
+    } else if (typeof b.type === 'string') {
+      parts.push({ type: 'input_text', text: `[${b.type}]` })
+    }
+  }
+
+  const merged: ArkInputPart[] = []
+  for (const p of parts) {
+    const last = merged[merged.length - 1]
+    if (
+      p.type === 'input_text' &&
+      last?.type === 'input_text' &&
+      p.text.length > 0
+    ) {
+      last.text = `${last.text}\n${p.text}`
+    } else if (p.type === 'input_text' && p.text.length === 0) {
+      continue
+    } else {
+      merged.push(p)
+    }
+  }
+
+  if (merged.length === 0) return ''
+  if (merged.length === 1 && merged[0].type === 'input_text') {
+    return merged[0].text
+  }
+  return merged
+}
 
 function anthropicMessagesToArkInput(
   messages: unknown,
@@ -76,10 +160,17 @@ function anthropicMessagesToArkInput(
     const msg = m as Record<string, unknown>
     const role = msg.role
     if (role !== 'user' && role !== 'assistant') continue
-    out.push({
-      role: role as string,
-      content: flattenAnthropicContent(msg.content),
-    })
+    if (role === 'user') {
+      out.push({
+        role: 'user',
+        content: anthropicUserContentToArk(msg.content),
+      })
+    } else {
+      out.push({
+        role: 'assistant',
+        content: flattenAnthropicContent(msg.content),
+      })
+    }
   }
   return out
 }
