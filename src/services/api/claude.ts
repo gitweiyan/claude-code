@@ -230,6 +230,7 @@ import { getInitializationStatus } from '../lsp/manager.js'
 import { isToolFromMcpServer } from '../mcp/utils.js'
 import { withStreamingVCR, withVCR } from '../vcr.js'
 import { CLIENT_REQUEST_ID_HEADER, getAnthropicClient } from './client.js'
+import { isVolcArkInferenceEnabled } from './volcArkInferenceProvider.js'
 import {
   API_ERROR_MESSAGE_PREFIX,
   CUSTOM_OFF_SWITCH_MESSAGE,
@@ -534,6 +535,11 @@ export async function verifyApiKey(
 ): Promise<boolean> {
   // Skip API verification if running in print mode (isNonInteractiveSession)
   if (isNonInteractiveSession) {
+    return true
+  }
+
+  if (isVolcArkInferenceEnabled()) {
+    // Key check uses Anthropic Haiku; Ark endpoints use user-configured models only.
     return true
   }
 
