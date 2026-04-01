@@ -103,6 +103,25 @@ function buildArkBody(
   return body
 }
 
+/** Text blocks in Ark message: output_text (Responses API) or text. */
+function textFromArkMessageContent(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as Record<string, unknown>
+    const t = b.type
+    if ((t === 'output_text' || t === 'text') && typeof b.text === 'string') {
+      parts.push(b.text)
+    }
+  }
+  return parts.join('')
+}
+
+/**
+ * Ark Responses API: `output` may include reasoning first, then assistant message.
+ * Use the last `type: "message"` item (assistant reply).
+ */
 function extractArkTextFromJson(obj: unknown): string | null {
   if (obj === null || typeof obj !== 'object') return null
   const o = obj as Record<string, unknown>
@@ -115,29 +134,43 @@ function extractArkTextFromJson(obj: unknown): string | null {
     const delta = c0.delta as Record<string, unknown> | undefined
     if (delta && typeof delta.content === 'string') return delta.content
   }
-  // Responses API style (non-streaming): output[].content[].text
   const output = o.output
-  if (Array.isArray(output) && output.length > 0) {
-    const last = output[output.length - 1]
-    if (last && typeof last === 'object') {
-      const lo = last as Record<string, unknown>
-      const content = lo.content
-      if (
-        Array.isArray(content) &&
-        content[0] &&
-        typeof content[0] === 'object'
-      ) {
-        const c0 = content[0] as Record<string, unknown>
-        if (typeof c0.text === 'string') return c0.text
-      }
+  if (Array.isArray(output)) {
+    for (let i = output.length - 1; i >= 0; i--) {
+      const item = output[i]
+      if (!item || typeof item !== 'object') continue
+      const block = item as Record<string, unknown>
+      if (block.type !== 'message') continue
+      const text = textFromArkMessageContent(block.content)
+      if (text.length > 0) return text
     }
   }
   if (typeof o.text === 'string') return o.text
   return null
 }
 
-function buildAnthropicMessageJson(text: string, model: string): string {
+function extractArkUsageFromJson(obj: unknown): {
+  input_tokens: number
+  output_tokens: number
+} | null {
+  if (obj === null || typeof obj !== 'object') return null
+  const u = (obj as Record<string, unknown>).usage
+  if (!u || typeof u !== 'object') return null
+  const usage = u as Record<string, unknown>
+  const input = usage.input_tokens
+  const output = usage.output_tokens
+  if (typeof input !== 'number' || typeof output !== 'number') return null
+  return { input_tokens: input, output_tokens: output }
+}
+
+function buildAnthropicMessageJson(
+  text: string,
+  model: string,
+  usage?: { input_tokens: number; output_tokens: number } | null,
+): string {
   const id = `msg_${randomUUID()}`
+  const inTok = usage?.input_tokens ?? 0
+  const outTok = usage?.output_tokens ?? 0
   const payload = {
     id,
     type: 'message',
@@ -147,8 +180,8 @@ function buildAnthropicMessageJson(text: string, model: string): string {
     stop_reason: 'end_turn',
     stop_sequence: null,
     usage: {
-      input_tokens: 0,
-      output_tokens: 0,
+      input_tokens: inTok,
+      output_tokens: outTok,
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0,
     },
@@ -183,6 +216,18 @@ function extractStreamDelta(obj: unknown): string {
     if (delta && typeof delta === 'object') {
       const d = delta as Record<string, unknown>
       if (typeof d.text === 'string') return d.text
+      const dOut = d.output
+      if (Array.isArray(dOut)) {
+        let acc = ''
+        for (const item of dOut) {
+          if (!item || typeof item !== 'object') continue
+          const block = item as Record<string, unknown>
+          if (block.type === 'message') {
+            acc += textFromArkMessageContent(block.content)
+          }
+        }
+        if (acc) return acc
+      }
     }
   }
   return ''
@@ -297,7 +342,8 @@ export function createVolcArkInferenceFetch(
         )
       }
       const outText = extractArkTextFromJson(data) ?? ''
-      const anthropicJson = buildAnthropicMessageJson(outText, model)
+      const usage = extractArkUsageFromJson(data)
+      const anthropicJson = buildAnthropicMessageJson(outText, model, usage)
       return new Response(anthropicJson, {
         status: 200,
         headers: {
