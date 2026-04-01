@@ -295,6 +295,15 @@ export function getAnthropicApiKeyWithSource(
       source: 'none',
     }
   }
+  // Interactive sessions normally require onboarding approval (customApiKeyResponses)
+  // before ANTHROPIC_API_KEY is used. Set CLAUDE_CODE_TRUST_ENV_API_KEY=1 to opt in
+  // to key-from-env without /login or the approval dialog (local/CI convenience).
+  if (apiKeyEnv && isEnvTruthy(process.env.CLAUDE_CODE_TRUST_ENV_API_KEY)) {
+    return {
+      key: apiKeyEnv,
+      source: 'ANTHROPIC_API_KEY',
+    }
+  }
   // Check for ANTHROPIC_API_KEY before checking the apiKeyHelper or /login-managed key
   if (
     apiKeyEnv &&
