@@ -16,6 +16,10 @@ import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
 } from 'src/utils/model/providers.js'
+import {
+  createVolcArkInferenceFetch,
+  isVolcArkInferenceEnabled,
+} from './volcArkInferenceProvider.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
 import {
   getIsNonInteractiveSession,
@@ -309,6 +313,10 @@ export async function getAnthropicClient({
       ? { baseURL: getOauthConfig().BASE_API_URL }
       : {}),
     ...ARGS,
+    // Volc Ark adapter intercepts /v1/messages in fetch; SDK still needs a valid base URL.
+    ...(isVolcArkInferenceEnabled()
+      ? { baseURL: 'https://api.anthropic.com' }
+      : {}),
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
   }
 
@@ -360,7 +368,10 @@ function buildFetch(
   source: string | undefined,
 ): ClientOptions['fetch'] {
   // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
-  const inner = fetchOverride ?? globalThis.fetch
+  const baseFetch = fetchOverride ?? globalThis.fetch
+  const inner = isVolcArkInferenceEnabled()
+    ? createVolcArkInferenceFetch(baseFetch)
+    : baseFetch
   // Only send to the first-party API — Bedrock/Vertex/Foundry don't log it
   // and unknown headers risk rejection by strict proxies (inc-4029 class).
   const injectClientRequestId =

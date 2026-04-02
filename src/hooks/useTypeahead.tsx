@@ -603,18 +603,19 @@ export function useTypeahead({
       const seen = new Set<string>();
       if (isAgentSwarmsEnabled() && state.teamContext) {
         for (const t of Object.values(state.teamContext.teammates ?? {})) {
-          if (t.name === TEAM_LEAD_NAME) continue;
-          if (!t.name.toLowerCase().startsWith(partialName)) continue;
-          seen.add(t.name);
+          const n = t.name;
+          if (!n || n === TEAM_LEAD_NAME) continue;
+          if (!n.toLowerCase().startsWith(partialName)) continue;
+          seen.add(n);
           members.push({
-            id: `dm-${t.name}`,
-            displayText: `@${t.name}`,
+            id: `dm-${n}`,
+            displayText: `@${n}`,
             description: 'send message'
           });
         }
       }
       for (const [name, agentId] of state.agentNameRegistry) {
-        if (seen.has(name)) continue;
+        if (!name || seen.has(name)) continue;
         if (!name.toLowerCase().startsWith(partialName)) continue;
         const status = state.tasks[agentId]?.status;
         members.push({

@@ -115,7 +115,8 @@ export function isAnthropicAuthEnabled(): boolean {
   const is3P =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_VOLC_ARK)
 
   // Check if user has configured an external API key source
   // This allows externally-provided API keys to work (without requiring proxy configuration)
@@ -293,6 +294,15 @@ export function getAnthropicApiKeyWithSource(
     return {
       key: null,
       source: 'none',
+    }
+  }
+  // Interactive sessions normally require onboarding approval (customApiKeyResponses)
+  // before ANTHROPIC_API_KEY is used. Set CLAUDE_CODE_TRUST_ENV_API_KEY=1 to opt in
+  // to key-from-env without /login or the approval dialog (local/CI convenience).
+  if (apiKeyEnv && isEnvTruthy(process.env.CLAUDE_CODE_TRUST_ENV_API_KEY)) {
+    return {
+      key: apiKeyEnv,
+      source: 'ANTHROPIC_API_KEY',
     }
   }
   // Check for ANTHROPIC_API_KEY before checking the apiKeyHelper or /login-managed key
