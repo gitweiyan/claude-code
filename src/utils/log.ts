@@ -19,6 +19,7 @@ import { stripDisplayTags, stripDisplayTagsAllowEmpty } from './displayTags.js'
 import { isEnvTruthy } from './envUtils.js'
 import { toError } from './errors.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
+import { logApiMessagesToFile } from '../services/api/logApiMessagesToFile.js'
 import { jsonParse } from './slowOperations.js'
 
 /**
@@ -332,6 +333,12 @@ export function captureAPIRequest(
   params: BetaMessageStreamParams,
   querySource?: QuerySource,
 ): void {
+  logApiMessagesToFile({
+    querySource,
+    model: params.model,
+    messages: params.messages as unknown[],
+  })
+
   // startsWith, not exact match — users with non-default output styles get
   // variants like 'repl_main_thread:outputStyle:Explanatory' (querySource.ts).
   if (!querySource || !querySource.startsWith('repl_main_thread')) {

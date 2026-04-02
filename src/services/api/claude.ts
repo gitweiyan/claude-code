@@ -1802,7 +1802,7 @@ async function* queryModel(
         queryCheckpoint('query_client_creation_end')
 
         const params = paramsFromContext(context)
-        captureAPIRequest(params, options.querySource) // Capture for bug reports
+        captureAPIRequest(params, options.querySource) // Capture for bug reports + optional claude.info dump
 
         maxOutputTokens = params.max_tokens
 
